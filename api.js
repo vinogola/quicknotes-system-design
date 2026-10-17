@@ -1,6 +1,10 @@
 const API_URL = "https://jsonplaceholder.typicode.com/posts";
 
 const loadButton = document.querySelector("#load-btn");
+const noteForm = document.querySelector("#note-form");
+const titleInput = document.querySelector("#title-input");
+const bodyInput = document.querySelector("#body-input");
+const submitButton = document.querySelector("#submit-btn");
 const statusMessage = document.querySelector("#status");
 const notesList = document.querySelector("#notes-list");
 
@@ -13,6 +17,7 @@ const showStatus = (message, type) => {
 
 const setBusy = (busy) => {
   loadButton.disabled = busy;
+  submitButton.disabled = busy;
 };
 
 // Returns { status, data }. Throws on a network failure and on any non-2xx status.
@@ -78,4 +83,42 @@ const loadNotes = async () => {
   }
 };
 
+const createNote = async (event) => {
+  event.preventDefault();
+
+  const title = titleInput.value.trim();
+  const body = bodyInput.value.trim();
+
+  if (title === "") {
+    showStatus("Please enter a title.", "error");
+    return;
+  }
+
+  if (title.length > 100) {
+    showStatus("The title must be 100 characters or fewer.", "error");
+    return;
+  }
+
+  setBusy(true);
+  showStatus("Creating note...", "loading");
+
+  try {
+    const { status, data } = await request(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, body, userId: 1 }),
+    });
+
+    notes.unshift(data);
+    render();
+    showStatus(`Note created (status ${status}, id ${data.id}).`, "success");
+    noteForm.reset();
+  } catch {
+    showStatus("Could not create the note. Please try again.", "error");
+  } finally {
+    setBusy(false);
+  }
+};
+
 loadButton.addEventListener("click", loadNotes);
+noteForm.addEventListener("submit", createNote);
