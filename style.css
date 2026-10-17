@@ -1,0 +1,124 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  color: #1f2933;
+  background: #eef1f5;
+}
+
+header {
+  padding: 1.5rem 1rem;
+  color: white;
+  text-align: center;
+  background: #1e3a5f;
+}
+
+header h1,
+header p {
+  margin: 0;
+}
+
+header p {
+  margin-top: 0.25rem;
+}
+
+main {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+section {
+  margin-bottom: 1rem;
+  padding: 1.5rem;
+  background: white;
+  border-radius: 8px;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+input,
+textarea,
+button {
+  padding: 0.6rem;
+  font: inherit;
+}
+
+input,
+textarea {
+  border: 1px solid #b8c2cc;
+  border-radius: 4px;
+}
+
+button {
+  color: white;
+  background: #2b6cb0;
+  border: 1px solid #2b6cb0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #1a4a80;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#status {
+  min-height: 1.5em;
+  font-weight: bold;
+}
+
+#status.loading {
+  color: #52606d;
+}
+
+#status.success {
+  color: #1b7f4b;
+}
+
+#status.error {
+  color: #c62828;
+}
+
+#notes-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#notes-list li {
+  margin: 0.75rem 0;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+  border: 1px solid #dde3ea;
+  border-left: 5px solid #2b6cb0;
+  border-radius: 8px;
+}
+
+#notes-list h3 {
+  margin: 0 0 0.25rem;
+}
+
+#notes-list p {
+  margin: 0 0 0.75rem;
+}
+
+#notes-list .empty {
+  color: #52606d;
+  border-left-color: #b8c2cc;
+}
