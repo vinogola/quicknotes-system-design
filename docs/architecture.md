@@ -1,43 +1,25 @@
 # QuickNotes Architecture
 
-QuickNotes is moving from a browser-only app to an online service for 1 million users. This document sets out the requirements, the expected load, the architecture and the main trade-offs.
+The design for taking QuickNotes from a browser-only app to an online service for 1 million users.
 
 ## Requirements
 
-### Functional
+**Functional:** register and log in; create, read, update and delete your own notes; categories and tags; list, filter and search; notes saved on the server and available on any device.
 
-- Users can register and log in.
-- Users can create, read, update and delete their own notes.
-- Notes have a category and optional tags.
-- Users can list, filter and search their notes.
-- Notes are saved on the server, so they are available from any device.
-
-### Non-functional
-
-- **Availability:** 99.9% uptime, with no single failure taking the service down.
-- **Speed:** 95% of requests answered in under 300 ms.
-- **Scale:** comfortable at 1 million users, with room to grow to 10 million.
-- **Durability:** a saved note is never lost (replication and daily backups).
-- **Security:** HTTPS everywhere, hashed passwords, token authentication, and every note checked against its owner.
-- **Consistency:** a user sees their own note straight after saving it.
+**Non-functional:** 99.9% availability; 95% of requests under 300 ms; comfortable at 1 million users with room for 10 million; no lost notes (replication, daily backups); HTTPS, hashed passwords, token authentication and an owner check on every note; a user sees their own note straight after saving it.
 
 ## Load estimate
 
-Assumptions: 1,000,000 registered users, 20% active on a given day, each active user lists their notes 20 times a day and creates 5 notes a day, a note takes about 1 KB, and peak traffic is 5 times the average. Indexes and tags roughly double the storage.
+Assumptions: 1,000,000 users, 20% active each day, each active user lists notes 20 times and creates 5 notes a day, a note takes about 1 KB (indexes and tags double that), and peak is 5 times average.
 
 | Measure | Working | Result |
 |---|---|---|
 | Daily active users | 1,000,000 x 20% | 200,000 |
-| Reads per day | 200,000 x 20 | 4,000,000 |
-| Reads per second (average) | 4,000,000 / 86,400 | about 46 |
-| Reads per second (peak) | 46 x 5 | about 230 |
-| Writes per day | 200,000 x 5 | 1,000,000 |
-| Writes per second (average) | 1,000,000 / 86,400 | about 12 |
-| Writes per second (peak) | 12 x 5 | about 58 |
-| New notes per year | 1,000,000 x 365 | 365 million |
-| **Storage per year** | 365 million x 1 KB x 2 for indexes | **about 730 GB** |
+| Reads per second | 200,000 x 20 / 86,400 | about 46 average, 230 peak |
+| Writes per second | 200,000 x 5 / 86,400 | about 12 average, 58 peak |
+| **Storage per year** | 200,000 x 5 x 365 x 1 KB x 2 | **about 730 GB** |
 
-Reads outnumber writes about 4 to 1, so the design favours fast reads. These numbers are modest: one well-tuned database could carry them today. The cache and read replica are there for speed, for availability and for headroom to grow, not because the first million users need them.
+Reads outnumber writes about 4 to 1, so the design favours fast reads. One tuned database could carry these numbers today. The cache and replica are for speed, availability and room to grow.
 
 ## Architecture diagram
 
@@ -75,53 +57,52 @@ Reads outnumber writes about 4 to 1, so the design favours fast reads. These num
              +---------+
 ```
 
-Every app server talks to the cache, the primary database, the read replica and the queue.
+Every app server uses the cache, both databases and the queue.
 
 ## What each component does
 
 - **Client:** shows the notes and sends API requests with the user's token.
-- **DNS:** turns the QuickNotes domain name into the address of the CDN and the load balancer, so users can find the service.
-- **CDN:** serves the static files (HTML, CSS, JavaScript) from servers near the user, so pages load fast and our servers don't handle them.
-- **Load balancer:** spreads requests across the app servers and stops sending traffic to one that has failed, so no single server is overloaded or a single point of failure.
-- **App servers:** run the API code (login, validation, notes), and they keep no state, so we can add more whenever traffic grows.
-- **Cache:** keeps recent note lists in memory, so repeated reads skip the database and come back quickly.
-- **Primary database:** stores users, notes and tags, and takes every write, so there is one reliable source of truth.
-- **Read replica:** holds a live copy of the primary and answers read queries, so reads don't slow down writes and a copy exists if the primary fails.
-- **Queue:** holds background jobs such as updating the search index and sending reminder emails, so a request can finish without waiting for slow work.
-- **Worker:** takes jobs from the queue and does them, so the app servers stay free to answer users.
+- **DNS:** turns the QuickNotes domain name into the address of the CDN and load balancer, so users can find us.
+- **CDN:** serves the static files (HTML, CSS, JavaScript) from servers near the user, so pages load fast.
+- **Load balancer:** spreads requests across the app servers and skips any that has failed, so none is overloaded.
+- **App servers:** run the API code, and because they keep no state, we add more when traffic grows.
+- **Cache:** keeps recent note lists in memory, so repeated reads skip the database.
+- **Primary database:** stores users, notes and tags and takes every write, so there is one source of truth.
+- **Read replica:** a live copy of the primary that answers reads, so they don't slow down writes.
+- **Queue:** holds background jobs such as updating the search index, so a request can finish without waiting for slow work.
+- **Worker:** takes jobs from the queue and does them, so the app servers stay free for users.
 
 ## Request flows
 
-### GET /notes
+**GET /notes**
 
-1. The client sends `GET /notes` with its token. The request goes through the load balancer to an app server.
-2. The app server checks the token. If it is missing or invalid, it replies 401.
-3. The app server looks in the cache for this user's list (the key includes the user id and the query parameters).
-4. If the cache has it, the server returns it with 200.
-5. If not, the server runs the query on the read replica, stores the result in the cache for 60 seconds, and returns it with 200.
+1. The client sends the request with its token through the load balancer to an app server.
+2. The server checks the token and replies 401 if it fails.
+3. It looks in the cache for this user's list.
+4. On a hit, it returns the list with 200.
+5. On a miss, it queries the read replica, caches the result for 60 seconds and returns 200.
 
-### POST /notes
+**POST /notes**
 
-1. The client sends `POST /notes` with its token and the note in the body. The request goes through the load balancer to an app server.
-2. The app server checks the token (401 if it fails) and validates the body. A missing title or one over 100 characters gets a 400.
-3. The app server writes the note and its tags to the primary database in one transaction.
-4. The server deletes this user's cached note lists, so the next read is fresh.
-5. The server puts a job on the queue, for example "update the search index for note 42".
-6. The server replies 201 with the new note, without waiting for the job.
-7. A worker picks up the job and does it. The primary copies the new note to the replica.
+1. The client sends the request with its token and the note through the load balancer to an app server.
+2. The server checks the token (401) and the body, and replies 400 if the title is missing or over 100 characters.
+3. It writes the note and its tags to the primary database in one transaction.
+4. It deletes this user's cached lists, so the next read is fresh.
+5. It puts a job on the queue, for example "update the search index for note 42", and replies 201 with the new note.
+6. A worker later does the job, and the primary copies the note to the replica.
 
 ## Trade-offs
 
-- **Cache: speed against freshness.** The cache makes repeated reads fast and protects the database, but a cached list can be up to 60 seconds old. We clear a user's cache entries whenever they write, so they see their own changes at once. Other devices of the same user are covered the same way, because the cache key belongs to the user.
-- **Read replica: read scale against consistency.** The replica takes the read load, but it copies from the primary with a short delay, so a read can miss a note saved a moment ago. The cache clearing and a short read-from-primary window after a write cover this case.
-- **Queue: fast replies against delayed work.** Background jobs keep requests quick and absorb spikes, but a new note can take a few seconds to show up in search. It also adds two more parts to run and monitor.
-- **Single primary database: simplicity against write scale.** One primary is easy to reason about and handles 58 writes per second easily. If writes ever outgrew it, we would need to split the data across several databases, which is much harder, so we accept the limit for now.
+- **Cache: speed against freshness.** Cached lists can be up to 60 seconds old. We clear a user's entries on every write, so they see their own changes at once.
+- **Read replica: read scale against consistency.** The replica lags the primary slightly, so a read can miss a note saved a moment ago. Clearing the cache and reading from the primary briefly after a write covers it.
+- **Queue: fast replies against delayed work.** Requests stay quick, but a new note can take seconds to show up in search, and the queue and workers are two more parts to run.
+- **Single primary: simplicity against write scale.** One primary is easy to reason about and handles 58 writes a second easily. Beyond that we would have to split the data, which is much harder.
 
 ## Avoiding single points of failure
 
-- **App servers:** at least two behind the load balancer, and they keep no state, so any one of them can fail without loss.
-- **Load balancer:** an active and a standby, so the standby takes over if the active one fails.
-- **Database:** the read replica holds a current copy and can be promoted to primary if the primary fails. Daily backups, tested by restoring them, cover the worst case.
-- **Cache:** if it fails, requests fall back to the read replica. They are slower, but the service keeps working.
-- **Queue and workers:** jobs are stored on disk until a worker finishes them, so a crashed worker loses nothing, and more workers can be started.
+- **App servers:** at least two behind the load balancer, with no state, so one can fail without loss.
+- **Load balancer:** an active and a standby that takes over.
+- **Database:** the replica can be promoted if the primary fails, and daily backups, tested by restoring them, cover the worst case.
+- **Cache:** if it fails, requests fall back to the replica, slower but working.
+- **Queue and workers:** jobs are stored on disk until done, so a crashed worker loses nothing.
 - **DNS and CDN:** run by providers that already spread across many locations.
